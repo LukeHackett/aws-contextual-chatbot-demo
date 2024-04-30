@@ -1,6 +1,14 @@
 # Contextual Chatbot using Amazon Bedrock
 
 
+## Client Setup
+
+
+pipx install virtualenv
+virtualenv --help
+
+source ./client/bin/activate
+
 
 
 

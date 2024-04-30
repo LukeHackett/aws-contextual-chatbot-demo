@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Provides the Amazon OpenSearch resources for the chatbot application
+
+Parameters:
+  ApplicationName:
+    Type: String
+    Description: The name of your application
+    AllowedPattern: "^[a-zA-Z0-9-]+$"
+    Default: "chatbot-demo"
+
+Resources:
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-opensearchserverless-collection.html
+  OpenSearchServerlessCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn:
+      - OpenSearchServerlessCollectionNetworkPolicy
+      - OpenSearchServerlessCollectionEncryptionPolicy
+    Properties:
+      Name: !Sub "${ApplicationName}-kb-collection"
+      Description: "A collection for the knowledge base"
+      Type: VECTORSEARCH
+      StandbyReplicas: DISABLED
+
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-opensearchserverless-securitypolicy.html
+  OpenSearchServerlessCollectionNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub "${ApplicationName}-kb-collection"
+      Description: "Network policy to allow the IAM role to have permissions on Amazon Open Search collection and indexes"
+      Type: network
+      Policy: !Sub |
+        [
+          {
+            "AllowFromPublic": true,
+            "Rules": [
+              {
+                "ResourceType": "dashboard",
+                "Resource": [ "collection/${ApplicationName}-kb-collection" ]
+              },
+              {
+                "ResourceType": "collection",
+                "Resource": [ "collection/${ApplicationName}-kb-collection" ] 
+              }
+            ]
+          }
+        ]
+
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-opensearchserverless-securitypolicy.html
+  OpenSearchServerlessCollectionEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub "${ApplicationName}-kb-collection"
+      Description: 'Allows the IAM role to have permissions on Amazon Open Search collection and indexes'
+      Type: encryption
+      Policy: !Sub |
+        { 
+          "AWSOwnedKey": true,
+          "Rules": [ 
+            { 
+              "ResourceType": "collection",
+              "Resource": [ "collection/${ApplicationName}-kb-collection" ]
+            }
+          ]
+        }
+
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-opensearchserverless-securitypolicy.html
+  OpenSearchServerlessCollectionDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub "${ApplicationName}-kb-collection"
+      Description: 'Allows the IAM roles to have data access permissions on Amazon Open Search collection and indexes'
+      Type: data
+      Policy: !Sub |
+        [
+          {
+            "Description": "",
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": [ "collection/${ApplicationName}-kb-collection" ],
+                "Permission": [
+                  "aoss:DescribeCollectionItems",
+                  "aoss:CreateCollectionItems",
+                  "aoss:UpdateCollectionItems"
+                ]          
+              },
+              {
+                "ResourceType": "index",
+                "Resource": [ "index/${ApplicationName}-kb-collection/*" ],
+                "Permission": [                  
+                  "aoss:WriteDocument",
+                  "aoss:ReadDocument",
+                  "aoss:DescribeIndex",
+                  "aoss:CreateIndex",
+                  "aoss:UpdateIndex",
+                  "aoss:DeleteIndex"
+                ]            
+              }
+            ],
+            "Principal": [
+              "arn:aws:iam::${AWS::AccountId}:user/luke",
+              "arn:aws:iam::${AWS::AccountId}:role/${ApplicationName}-knowledge-base-role"
+            ]
+          }
+        ] 
+
+Outputs:
+  OpenSearchCollectionArn:
+    Description: The Arn of the OpenSearch Serverless Collection
+    Value: !GetAtt OpenSearchServerlessCollection.Arn
+    Export:
+      Name: open-search-collection-arn

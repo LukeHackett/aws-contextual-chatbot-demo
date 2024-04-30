@@ -1,0 +1,24 @@
+{
+    "aliases": {},
+    "mappings": {
+        "properties": {
+            "AMAZON_BEDROCK_METADATA": {
+                "type": "text",
+                "index": false
+            },
+            "AMAZON_BEDROCK_TEXT_CHUNK": {
+                "type": "text"
+            },
+            "bedrock-knowledge-base-default-vector": {
+                "type": "knn_vector",
+                "dimension": 1536,
+                "method": {
+                    "engine": "faiss",
+                    "space_type": "l2",
+                    "name": "hnsw",
+                    "parameters": {}
+                }
+            }
+        }
+    }
+}

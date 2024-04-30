@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Provides the Amazon Bedrock resources for the chatbot application
+
+Parameters:
+  ApplicationName:
+    Type: String
+    Description: The name of your application
+    AllowedPattern: "^[a-zA-Z0-9-]+$"
+    Default: "chatbot-demo"
+  OpenSearchStackName:
+    Type: String
+    Description: Name of the Open Search CloudFormation Stack
+    Default: "open-search"
+  EmbeddingModelArn:
+    Type: String
+    Description: Arn of the model used to create vector embeddings for the knowledge base Bedrock Knowledge base ID
+    AllowedPattern: "^arn:aws(-[^:]+)?:bedrock:[a-z0-9-]{1,20}:(([0-9]{12}:custom-model/[a-z0-9-]{1,63}[.]{1}[a-z0-9-]{1,63}/[a-z0-9]{12})|(:foundation-model/[a-z0-9-]{1,63}[.]{1}[a-z0-9-]{1,63}))$"
+    Default: "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v1"
+
+Resources:
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-bedrock-knowledgebase.html
+  KnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    DeletionPolicy: Delete
+    Properties:
+      Name: !Sub "${ApplicationName}-knowledge-base"
+      Description: "A knowledge base for the contextual chatbot application"
+      RoleArn: !GetAtt KnowledgeBaseRole.Arn
+      KnowledgeBaseConfiguration: 
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Ref EmbeddingModelArn
+      StorageConfiguration: 
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: 
+            Fn::ImportValue:
+              !Sub "${OpenSearchStackName}-collection-arn"
+          VectorIndexName: "bedrock-knowledge-base-default-index"
+          FieldMapping:
+            MetadataField: "AMAZON_BEDROCK_METADATA"
+            TextField: "AMAZON_BEDROCK_TEXT_CHUNK"
+            VectorField: "bedrock-knowledge-base-default-vector"
+
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-iam-role.html
+  KnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ApplicationName}-knowledge-base-role"
+      Description: "A role for the Amazon Bedrock knowledge base to access it's data sources"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "AmazonBedrockKnowledgeBaseTrustPolicy"
+            Effect: Allow
+            Principal:
+              Service: "bedrock.amazonaws.com"
+            Action: "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+              ArnLike:
+                "aws:SourceArn": !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*"  
+      Policies:
+        - PolicyName: Bedrock
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: "BedrockInvokeModelStatement"
+                Effect: Allow
+                Action:
+                  - "bedrock:InvokeModel"
+                Resource:
+                  - !Ref EmbeddingModelArn
+        - PolicyName: OpenSearch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: "OpenSearchServerlessAPIAccessAllStatement"
+                Effect: Allow
+                Action:
+                  - "aoss:APIAccessAll"
+                Resource:
+                  - Fn::ImportValue:
+                      !Sub "${OpenSearchStackName}-collection-arn"
+        - PolicyName: S3
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: "S3ListBucketStatement"
+                Effect: Allow
+                Action:
+                  - "s3:ListBucket"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${KnowledgeBaseBucket}"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceAccount": !Ref AWS::AccountId
+              - Sid: "S3GetObjectStatement"
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${KnowledgeBaseBucket}/*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceAccount": !Ref AWS::AccountId
+
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-s3-bucket.html
+  KnowledgeBaseBucket:
+    Type: AWS::S3::Bucket
+    # DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub "${ApplicationName}-kb-${AWS::AccountId}"
+
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-bedrock-datasource.html
+  KnowledgeBaseBucketDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      Name: !Sub "${ApplicationName}-kb-${AWS::AccountId}-datasource"
+      Description: 'Knowledge Base Bucket DataSource'
+      KnowledgeBaseId: !Ref KnowledgeBase
+      DataDeletionPolicy: DELETE
+      DataSourceConfiguration: 
+        Type: S3
+        S3Configuration: 
+          BucketArn: !GetAtt KnowledgeBaseBucket.Arn
+          BucketOwnerAccountId: !Ref AWS::AccountId

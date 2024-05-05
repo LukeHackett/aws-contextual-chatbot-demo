@@ -21,7 +21,6 @@ Resources:
   # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-bedrock-knowledgebase.html
   KnowledgeBase:
     Type: AWS::Bedrock::KnowledgeBase
-    DeletionPolicy: Delete
     Properties:
       Name: !Sub "${ApplicationName}-knowledge-base"
       Description: "A knowledge base for the contextual chatbot application"
@@ -111,13 +110,13 @@ Resources:
     Type: AWS::S3::Bucket
     # DeletionPolicy: Retain
     Properties:
-      BucketName: !Sub "${ApplicationName}-kb-${AWS::AccountId}"
+      BucketName: !Sub "${ApplicationName}-${AWS::AccountId}"
 
   # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-bedrock-datasource.html
   KnowledgeBaseBucketDataSource:
     Type: AWS::Bedrock::DataSource
     Properties:
-      Name: !Sub "${ApplicationName}-kb-${AWS::AccountId}-datasource"
+      Name: !Sub "${ApplicationName}-${AWS::AccountId}-datasource"
       Description: 'Knowledge Base Bucket DataSource'
       KnowledgeBaseId: !Ref KnowledgeBase
       DataDeletionPolicy: DELETE
@@ -126,3 +125,19 @@ Resources:
         S3Configuration: 
           BucketArn: !GetAtt KnowledgeBaseBucket.Arn
           BucketOwnerAccountId: !Ref AWS::AccountId
+          InclusionPrefixes:
+            - knowledge-base/
+
+Outputs:
+  KnowledgeBaseBucketName:
+    Description: The Arn of the Knowledge Base Bucket
+    Value: !Ref KnowledgeBaseBucket
+  KnowledgeBaseS3Uri:
+    Description: The S3 uri of the knowledge base upload directory
+    Value: !Sub "s3://${KnowledgeBaseBucket}/knowledge-base"
+  KnowledgeBaseId:
+    Description: The unique identifier of the Knowledge Base
+    Value: !Ref KnowledgeBase
+  KnowledgeBaseDataSourceId:
+    Description: The unique identifier of the Knowledge Base DataSource Id
+    Value: !GetAtt KnowledgeBaseBucketDataSource.DataSourceId

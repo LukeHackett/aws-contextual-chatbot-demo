@@ -1,0 +1,35 @@
+{
+  "agentId": "${AGENT_ID}",
+  "agentVersion": "${AGENT_VERSION}",
+  "actionGroupName": "create-aws-resource-action-group",
+  "description": "Creates an AWS Resource within this account",
+  "actionGroupState": "ENABLED",
+  "actionGroupExecutor": {
+    "lambda": "${AGENT_LAMBDA}"
+  },
+  "functionSchema": {
+    "functions": [
+      {
+        "description": "Creates an AWS resource",
+        "name": "create-aws-resource",
+        "parameters": {
+          "resource": {
+            "description": "The AWS Resource to be deployed (only supports SQS or SNS)",
+            "required": true,
+            "type": "string"
+          },
+          "region": {
+            "description": "The AWS Region to deploy the resource into (e.g. us-east-1, eu-west-1)",
+            "required": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the resource to be created",
+            "required": true,
+            "type": "string"
+          }
+        }
+      }
+    ]
+  }
+}

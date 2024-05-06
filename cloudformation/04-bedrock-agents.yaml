@@ -1,0 +1,194 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Provides the Amazon Bedrock Agent resources for the chatbot application
+
+Parameters:
+  ApplicationName:
+    Type: String
+    Description: The name of your application
+    AllowedPattern: "^[a-zA-Z0-9-]+$"
+    Default: "chatbot-demo"
+  FoundationModel:
+    Type: String
+    Description: Name of the Open Search CloudFormation Stack
+    Default: "anthropic.claude-v2:1"
+
+Resources:
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-bedrock-agent.html
+  AwsResourceAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub "${ApplicationName}-aws-resource-agent"
+      Description: "Creates an AWS resource for the account that the agent is deployed into"
+      AgentResourceRoleArn: !GetAtt AwsResourceAgentRole.Arn
+      AutoPrepare: True
+      FoundationModel: !Ref FoundationModel
+      Instruction: "Use this to create AWS SQS Queues or AWS SNS Topics. All other AWS Service types are not supported."
+      IdleSessionTTLInSeconds: 600
+      # NOTE: "functionSchema" is not supported via CloudFormation, but is supported via the AWS CLI
+      # See 05-bedrock-agents-group.json for more details
+      
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-iam-role.html
+  AwsResourceAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "AmazonBedrockExecutionRoleForAgents-create-aws-resource-role"
+      Description: "A role for the Amazon Bedrock Agent to access the foundational model"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "AmazonBedrockAgent"
+            Effect: Allow
+            Principal:
+              Service: "bedrock.amazonaws.com"
+            Action: "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+              ArnLike:
+                "aws:SourceArn": !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*"  
+      Policies:
+        - PolicyName: BedrockFoundationModel
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: "BedrockInvokeModelStatement"
+                Effect: Allow
+                Action:
+                  - "bedrock:InvokeModel"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${FoundationModel}"
+        
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-iam-role.html
+  CreateAwsResourceLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ApplicationName}-create-aws-resource-agent"
+      Description: "Handles the creation of an AWS Resource"
+      Handler: index.lambda_handler
+      MemorySize: 512
+      Role: !GetAtt CreateAwsResourceLambdaRole.Arn
+      Runtime: python3.12
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import os
+          import time
+          import boto3
+
+          # AWS Region that the lambda function is executing in
+          DEFAULT_AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+
+          # A utility function to obtain the params as a dictionary
+          def get_parameters(params_list):
+              params_dict = {}
+              for param in params_list:
+                  name = param['name']
+                  value = param['value']
+
+                  if param['type'] == 'integer':
+                      value = int(value)
+                  elif param['type'] == 'boolean':
+                      value = bool(value)
+                  
+                  params_dict[name] = value
+
+              return params_dict
+
+          # Main Lambda function handler
+          def lambda_handler(event, context):
+              agent = event['agent']
+              actionGroup = event['actionGroup']
+              function = event['function']
+              parameters = event.get('parameters', [])  
+
+              # Create the AWS resource
+              requestParams = get_parameters(parameters)
+              resource = requestParams.get('resource', 'N/A')
+              region = requestParams.get('region', DEFAULT_AWS_REGION)
+              name = requestParams.get('name', f'bedrock-agent-{int(round(time.time() * 1000))}').replace(' ', '-').lower()
+
+              if 'sqs' in resource.casefold():
+                  client = boto3.client('sqs', region_name=region)
+                  client.create_queue(QueueName=name, tags={ 'CreatedBy': 'Bedrock Agent invoking Lambda' })
+
+              elif 'sns' in resource.casefold():
+                  client = boto3.client('sns', region_name=region)
+                  client.create_queue(Name=name, tags={ 'CreatedBy': 'Bedrock Agent invoking Lambda' })
+
+              # Return a response
+              action_response = {
+                  'actionGroup': actionGroup,
+                  'function': function,
+                  'functionResponse': {
+                      'responseBody': {
+                          "TEXT": {
+                              "body": "The function {} was called successfully!".format(function)
+                          }
+                      }
+                  }
+              }
+
+              return {
+                  'response': action_response, 
+                  'messageVersion': event['messageVersion']
+              }
+
+
+  # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-iam-role.html
+  CreateAwsResourceLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ApplicationName}-create-aws-resource-role"
+      Description: "A role for the create an AWS resource Lambda Function"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "LambdaAssumeRole"
+            Effect: Allow
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: CreateResources
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SQS
+                Effect: Allow
+                Action:
+                  - sqs:CreateQueue
+                  - sqs:TagQueue
+                Resource: 
+                  - !Sub "arn:${AWS::Partition}:sqs:*:${AWS::AccountId}:*"
+              - Sid: SNS
+                Effect: Allow
+                Action:
+                  - sns:CreateTopic
+                  - sns:TagQueue
+                Resource: 
+                  - !Sub "arn:${AWS::Partition}:sns:*:${AWS::AccountId}:*"
+
+  BedrockAgentCreateAwsResourceLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt CreateAwsResourceLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      #SourceArn: !GetAtt bucket.Arn
+
+Outputs:
+  CreateAwsResourceLambdaArn:
+    Description: The Arn of the create AWS Resource Lambda Function
+    Value: !GetAtt CreateAwsResourceLambda.Arn   
+  AgentId:
+    Description: The Bedrock Agent Id
+    Value: !GetAtt AwsResourceAgent.AgentId
+  AgentVersion:
+    Description: The Bedrock Agent Version
+    Value: !GetAtt AwsResourceAgent.AgentVersion

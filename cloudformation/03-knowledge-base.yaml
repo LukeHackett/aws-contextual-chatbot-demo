@@ -91,7 +91,7 @@ Resources:
                 Action:
                   - "s3:ListBucket"
                 Resource:
-                  - !Sub "arn:${AWS::Partition}:s3:::${KnowledgeBaseBucket}"
+                  - !Sub "arn:${AWS::Partition}:s3:::${ApplicationBucket}"
                 Condition:
                   StringEquals:
                     "aws:ResourceAccount": !Ref AWS::AccountId
@@ -100,20 +100,20 @@ Resources:
                 Action:
                   - "s3:GetObject"
                 Resource:
-                  - !Sub "arn:${AWS::Partition}:s3:::${KnowledgeBaseBucket}/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::${ApplicationBucket}/*"
                 Condition:
                   StringEquals:
                     "aws:ResourceAccount": !Ref AWS::AccountId
 
   # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-s3-bucket.html
-  KnowledgeBaseBucket:
+  ApplicationBucket:
     Type: AWS::S3::Bucket
     # DeletionPolicy: Retain
     Properties:
       BucketName: !Sub "${ApplicationName}-${AWS::AccountId}"
 
   # Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-bedrock-datasource.html
-  KnowledgeBaseBucketDataSource:
+  KnowledgeBaseDataSource:
     Type: AWS::Bedrock::DataSource
     Properties:
       Name: !Sub "${ApplicationName}-${AWS::AccountId}-datasource"
@@ -123,21 +123,27 @@ Resources:
       DataSourceConfiguration: 
         Type: S3
         S3Configuration: 
-          BucketArn: !GetAtt KnowledgeBaseBucket.Arn
+          BucketArn: !GetAtt ApplicationBucket.Arn
           BucketOwnerAccountId: !Ref AWS::AccountId
           InclusionPrefixes:
             - knowledge-base/
 
 Outputs:
-  KnowledgeBaseBucketName:
+  ApplicationBucketName:
     Description: The Arn of the Knowledge Base Bucket
-    Value: !Ref KnowledgeBaseBucket
+    Value: !Ref ApplicationBucket
+    Export:
+      Name: application-bucket-name
   KnowledgeBaseS3Uri:
     Description: The S3 uri of the knowledge base upload directory
-    Value: !Sub "s3://${KnowledgeBaseBucket}/knowledge-base"
+    Value: !Sub "s3://${ApplicationBucket}/knowledge-base"
   KnowledgeBaseId:
     Description: The unique identifier of the Knowledge Base
     Value: !Ref KnowledgeBase
+    Export:
+      Name: knowledge-base-id
   KnowledgeBaseDataSourceId:
     Description: The unique identifier of the Knowledge Base DataSource Id
-    Value: !GetAtt KnowledgeBaseBucketDataSource.DataSourceId
+    Value: !GetAtt KnowledgeBaseDataSource.DataSourceId
+    Export:
+      Name: knowledge-base-data-source-id
